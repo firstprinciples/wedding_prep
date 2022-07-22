@@ -30,7 +30,8 @@ setuptools.setup(
         'seaborn',
         'tqdm',
         'plotly',
-        'gurobipy'
+        'gurobipy',
+        'nbformat'
     ],
     include_package_data=True,
     classifiers=[
