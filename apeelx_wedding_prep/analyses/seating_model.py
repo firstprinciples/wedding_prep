@@ -20,15 +20,16 @@ class SeatingModel:
 
     def __init__(self,
         df_solution=None, guests_per_table=8, age_difference_penalty=0.1, 
-        must_sit_together_score=100, age_diff_zero=6):
+        must_sit_together_score=100, age_diff_zero=6, base_score=0):
 
         self.guest_list = self.GUEST_LIST_DF.index
         self.age_difference_penalty = age_difference_penalty
         self.guests_per_table = guests_per_table
         self.must_sit_together_score = must_sit_together_score
         self.age_diff_zero = age_diff_zero
-        self.tables = self.get_tables()
+        self.base_score = base_score
 
+        self.tables = self.get_tables()
         if df_solution is None:
             self.df_solution = self._make_solution_df(self.guest_list, self.tables.keys())
         else:
@@ -73,7 +74,7 @@ class SeatingModel:
             for gp in self.guest_list[i+1:]:
                 objective_cost_mtx.loc[g, gp] = self.age_difference_penalty * (self.age_difference_mtx.loc[g, gp] - self.age_diff_zero) \
                     if self.age_difference_mtx.loc[g, gp] >= self.age_diff_zero else 0
-                objective_cost_mtx.loc[g, gp] -= self.RELATIONSHIP_MTX.loc[g, gp]
+                objective_cost_mtx.loc[g, gp] -= self.RELATIONSHIP_MTX.loc[g, gp] - self.base_score
                 if self.CONSTRAINT_MTX.loc[g, gp] == 1:
                     objective_cost_mtx.loc[g, gp] -= self.must_sit_together_score
 
@@ -221,6 +222,7 @@ class SeatingModel:
             df_solution.loc[(guests_at_table, table), 'solution'] = 1
             if isinstance(seating_chart.loc['Locked', table], str) and seating_chart.loc['Locked', table].lower() == 'y':
                 df_solution.loc[(guests_at_table, table), 'fixed'] = True
+                df_solution.loc[(guests, table), 'fixed'] = True
 
         for guest in locked_guests:
             df_solution.loc[(SeatingModel.convert_to_underscored(guest), tables), 'fixed'] = True
