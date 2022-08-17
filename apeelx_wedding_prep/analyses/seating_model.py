@@ -20,7 +20,7 @@ class SeatingModel:
 
     def __init__(self,
         df_solution=None, guests_per_table=8, age_difference_penalty=0.1, 
-        must_sit_together_score=100, age_diff_zero=6, base_score=0):
+        must_sit_together_score=100, age_diff_zero=6, base_score=0, extra_tables=0):
 
         self.guest_list = self.GUEST_LIST_DF.index
         self.age_difference_penalty = age_difference_penalty
@@ -28,6 +28,7 @@ class SeatingModel:
         self.must_sit_together_score = must_sit_together_score
         self.age_diff_zero = age_diff_zero
         self.base_score = base_score
+        self.extra_tables = extra_tables
 
         self.tables = self.get_tables()
         if df_solution is None:
@@ -36,7 +37,7 @@ class SeatingModel:
             self.df_solution = df_solution
             assert sorted(self.df_solution['guest'].unique()) == sorted(self.guest_list), 'guest list and solution do not match'
             for table in self.df_solution['table'].unique():
-                self.tables[table] = len(self.df_solution[(self.df_solution['table'] == table) & (self.df_solution['solution'] == 1)])
+                self.tables[table] = (0, len(self.df_solution[(self.df_solution['table'] == table) & (self.df_solution['solution'] == 1)]))
 
         self.age_difference_mtx = self._get_age_difference_mtx()
         self.objective_cost_mtx, self.not_seated_together_list = self._get_objective_and_constraint_values()
@@ -45,7 +46,7 @@ class SeatingModel:
         self.model = Model()
         self.y = self.model.addVars(self.guest_list, self.tables.keys(), vtype=GRB.BINARY, name="y")
         self._set_objective()
-        self.table_constraints, self.not_seated_together_constraints, self.one_table_assignment_constraints = self._set_constraints()
+        self.table_constraints_high, self.table_constraints_low, self.not_seated_together_constraints, self.one_table_assignment_constraints = self._set_constraints()
         self._set_start_values()
 
     def write_model(self, filename, include_start=False):
@@ -54,16 +55,12 @@ class SeatingModel:
             self.model.write(f'../models/{filename}.mst')
 
     def get_tables(self):
-        n_tables = len(self.guest_list)//self.guests_per_table
+        n_tables = len(self.guest_list)//self.guests_per_table + self.extra_tables
         extra_seats = len(self.guest_list) % self.guests_per_table
         print(f'n_tables: {n_tables}, extra_seats: {extra_seats}')
         tables = {}
         for t in range(n_tables):
-            guests = self.guests_per_table + 1 if t < extra_seats else self.guests_per_table
-            tables[f't_{t+1}'] = guests
-
-        if not extra_seats:
-            tables['t_1'] += 1
+            tables[f't_{t+1}'] = (self.guests_per_table - 1, self.guests_per_table)
         
         return tables
 
@@ -106,9 +103,12 @@ class SeatingModel:
         self.model.update()
 
     def _set_constraints(self):
-        table_constraints = self.model.addConstrs(
+        table_constraints_high = self.model.addConstrs(
             quicksum(self.y[(g, table)] for g in self.guest_list) <= max_seats \
-                for table, max_seats in self.tables.items())
+                for table, (min_seats, max_seats) in self.tables.items())
+        table_constraints_low = self.model.addConstrs(
+            quicksum(self.y[(g, table)] for g in self.guest_list) >= min_seats \
+                for table, (min_seats, max_seats) in self.tables.items())
         not_seated_together_constraints = self.model.addConstrs(
             self.y[g, table] + self.y[gp, table] <= 1 \
                 for table in self.tables.keys() \
@@ -118,7 +118,7 @@ class SeatingModel:
                 for g in self.guest_list)
 
         self.model.update()
-        return table_constraints, not_seated_together_constraints, one_table_assignment_constraints
+        return table_constraints_high, table_constraints_low, not_seated_together_constraints, one_table_assignment_constraints
 
     @staticmethod
     def _make_solution_df(guest_list, tables):
